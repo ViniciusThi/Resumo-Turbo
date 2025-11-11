@@ -3,10 +3,12 @@ import google.generativeai as genai
 from PyPDF2 import PdfReader
 from gtts import gTTS
 import os
-import tempfile
 import requests
 from bs4 import BeautifulSoup
 from io import BytesIO
+import html
+import re
+import base64
 
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
 
@@ -32,6 +34,31 @@ st.set_page_config(
     page_title="Resumo Turbo",
     page_icon="🚀",
     layout="wide"
+)
+
+st.markdown(
+    """
+    <style>
+    .main-title {font-size:2.8rem;font-weight:700;margin-bottom:0.35rem;line-height:1.1;}
+    .sub-title {font-size:1.1rem;color:#5f6368;margin-bottom:2.2rem;}
+    .card {background:linear-gradient(135deg,#ffffff 0%,#f8faff 100%);border:1px solid rgba(99,102,241,0.15);border-radius:18px;padding:28px;margin-bottom:22px;box-shadow:0 28px 46px -32px rgba(79,70,229,0.45);}
+    .card-title {display:flex;align-items:center;gap:14px;font-weight:700;font-size:1.35rem;color:#1f2937;}
+    .card-title span {display:inline-flex;align-items:center;justify-content:center;width:46px;height:46px;border-radius:14px;background:rgba(99,102,241,0.08);font-size:1.5rem;}
+    .card-content {margin-top:18px;background:white;border-radius:14px;padding:20px 22px;border:1px solid rgba(15,23,42,0.06);font-size:1rem;line-height:1.65;font-family:'Inter', sans-serif;}
+    .card-content pre {background:rgba(242,244,255,0.9);padding:16px;border-radius:12px;overflow:auto;font-size:0.95rem;}
+    .download-link {display:inline-flex;align-items:center;gap:8px;margin-top:16px;text-decoration:none;background:linear-gradient(135deg,#eef2ff,#e0e7ff);border:1px solid rgba(99,102,241,0.25);color:#312e81;font-weight:600;padding:0.55rem 1.15rem;border-radius:12px;transition:all 0.2s ease;}
+    .download-link:hover {background:linear-gradient(135deg,#dce4ff,#c7d2fe);color:#1d1a65;}
+    .stAudio {margin-top:16px;}
+    .feature-grid {background:white;border:1px solid rgba(15,23,42,0.06);border-radius:16px;padding:18px 22px;margin-bottom:18px;display:grid;gap:14px;}
+    .feature-grid > label {font-weight:600;border:1px solid rgba(99,102,241,0.12);border-radius:14px;padding:14px 16px;box-shadow:0 20px 32px -28px rgba(79,70,229,0.5);}
+    .feature-grid > label:hover {border-color:#6366f1;}
+    .stRadio > div[role="radiogroup"] {background:white;border:1px solid rgba(15,23,42,0.08);padding:12px;border-radius:16px;gap:12px;}
+    .stRadio > div[role="radiogroup"] > label {border-radius:12px;padding:10px 16px;font-weight:600;}
+    .stTextInput > label, .stTextArea > label, .stFileUploader > label {font-weight:600;}
+    .stSpinner > div {font-size:1.05rem;}
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
 def extrair_texto_pdf(arquivo_pdf):
@@ -155,8 +182,73 @@ def texto_para_audio(texto, idioma='pt'):
         st.error(f"Erro ao gerar áudio: {str(e)}")
         return None
 
-st.title("🚀 Resumo Turbo")
-st.subheader("Transforme seus PDFs, textos e links em conteúdo de estudo inteligente!")
+def formatar_conteudo_html(texto):
+    if not texto:
+        return ""
+    texto = texto.replace("\r\n", "\n")
+    blocos_codigo = []
+
+    def armazenar_bloco(match):
+        blocos_codigo.append(match.group(1))
+        return f"__CODE_BLOCK_{len(blocos_codigo) - 1}__"
+
+    texto = re.sub(r"```([\s\S]+?)```", armazenar_bloco, texto)
+    texto = html.escape(texto)
+    texto = re.sub(r"\*\*(.*?)\*\*", r"<strong>\1</strong>", texto)
+    texto = re.sub(r"__(.*?)__", r"<strong>\1</strong>", texto)
+    texto = re.sub(r"\*(.*?)\*", r"<em>\1</em>", texto)
+    texto = texto.replace("\n- ", "<br>• ")
+    texto = texto.replace("\n• ", "<br>• ")
+    texto = texto.replace("\n", "<br>")
+
+    for indice, bloco in enumerate(blocos_codigo):
+        conteudo = html.escape(bloco)
+        texto = texto.replace(f"__CODE_BLOCK_{indice}__", f"<pre>{conteudo}</pre>")
+
+    return texto
+
+def criar_link_download(dados, nome_arquivo, mime):
+    if isinstance(dados, str):
+        dados = dados.encode("utf-8")
+    base = base64.b64encode(dados).decode()
+    return f'<a class="download-link" href="data:{mime};base64,{base}" download="{nome_arquivo}">⬇️ Baixar {nome_arquivo}</a>'
+
+def render_text_section(titulo, icone, conteudo, nome_arquivo):
+    corpo = formatar_conteudo_html(conteudo)
+    link = criar_link_download(conteudo, nome_arquivo, "text/plain")
+    st.markdown(
+        f"""
+        <div class="card">
+            <div class="card-title"><span>{icone}</span>{titulo}</div>
+            <div class="card-content">{corpo}</div>
+            {link}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+def render_audio_section(titulo, icone, audio_buffer, nome_arquivo):
+    if not audio_buffer:
+        return
+    audio_buffer.seek(0)
+    dados = audio_buffer.read()
+    base = base64.b64encode(dados).decode()
+    link = criar_link_download(dados, nome_arquivo, "audio/mp3")
+    st.markdown(
+        f"""
+        <div class="card">
+            <div class="card-title"><span>{icone}</span>{titulo}</div>
+            <div class="card-content">
+                <audio controls style="width:100%;" src="data:audio/mp3;base64,{base}"></audio>
+            </div>
+            {link}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+st.markdown("<div class='main-title'>🚀 Resumo Turbo</div>", unsafe_allow_html=True)
+st.markdown("<div class='sub-title'>Transforme PDFs, textos e links em trilhas de estudo personalizadas com IA.</div>", unsafe_allow_html=True)
 
 st.markdown("---")
 
@@ -193,7 +285,7 @@ elif opcao == "🔗 Link/URL":
 if texto_conteudo and len(texto_conteudo.strip()) > 100:
     
     st.markdown("---")
-    st.subheader("🎯 Escolha as funcionalidades que deseja gerar:")
+    st.markdown("<h3 style='font-weight:700;margin-bottom:1rem;'>🎯 Escolha os blocos que deseja gerar</h3>", unsafe_allow_html=True)
     
     col1, col2 = st.columns(2)
     
@@ -207,85 +299,79 @@ if texto_conteudo and len(texto_conteudo.strip()) > 100:
         gerar_audio_check = st.checkbox("🔊 Áudio do Resumo", value=True)
     
     if st.button("✨ Gerar Conteúdo", type="primary", use_container_width=True):
+        resultados = {}
+        mensagens = []
+        audio_resumo = None
         
         if gerar_resumo_check:
-            with st.spinner("Gerando resumo..."):
+            with st.spinner("Gerando resumo com o Gemini..."):
                 try:
-                    resumo = gerar_resumo(texto_conteudo)
-                    st.markdown("## 📝 Resumo")
-                    st.markdown(resumo)
-                    st.download_button(
-                        "⬇️ Download Resumo",
-                        resumo,
-                        file_name="resumo.txt",
-                        mime="text/plain"
-                    )
-                    
-                    if gerar_audio_check:
-                        with st.spinner("Gerando áudio do resumo..."):
-                            audio = texto_para_audio(resumo)
-                            if audio:
-                                st.audio(audio, format='audio/mp3')
-                                st.download_button(
-                                    "⬇️ Download Áudio",
-                                    audio,
-                                    file_name="resumo.mp3",
-                                    mime="audio/mp3"
-                                )
-                    
-                    st.markdown("---")
+                    resultados["resumo"] = gerar_resumo(texto_conteudo)
+                except ValueError as e:
+                    mensagens.append(("Resumo", str(e)))
                 except Exception as e:
-                    st.error(f"Erro ao gerar resumo: {str(e)}")
+                    mensagens.append(("Resumo", f"Erro ao gerar resumo: {str(e)}"))
         
         if gerar_mapa_check:
-            with st.spinner("Criando mapa mental..."):
+            with st.spinner("Desenhando mapa mental..."):
                 try:
-                    mapa = gerar_mapa_mental(texto_conteudo)
-                    st.markdown("## 🧠 Mapa Mental")
-                    st.markdown(mapa)
-                    st.download_button(
-                        "⬇️ Download Mapa Mental",
-                        mapa,
-                        file_name="mapa_mental.txt",
-                        mime="text/plain"
-                    )
-                    st.markdown("---")
+                    resultados["mapa"] = gerar_mapa_mental(texto_conteudo)
+                except ValueError as e:
+                    mensagens.append(("Mapa mental", str(e)))
                 except Exception as e:
-                    st.error(f"Erro ao gerar mapa mental: {str(e)}")
+                    mensagens.append(("Mapa mental", f"Erro ao gerar mapa mental: {str(e)}"))
         
         if gerar_questoes_check:
-            with st.spinner("Gerando questões..."):
+            with st.spinner("Criando questões desafiadoras..."):
                 try:
-                    questoes = gerar_questoes(texto_conteudo)
-                    st.markdown("## ❓ Questões de Estudo")
-                    st.markdown(questoes)
-                    st.download_button(
-                        "⬇️ Download Questões",
-                        questoes,
-                        file_name="questoes.txt",
-                        mime="text/plain"
-                    )
-                    st.markdown("---")
+                    resultados["questoes"] = gerar_questoes(texto_conteudo)
+                except ValueError as e:
+                    mensagens.append(("Questões", str(e)))
                 except Exception as e:
-                    st.error(f"Erro ao gerar questões: {str(e)}")
+                    mensagens.append(("Questões", f"Erro ao gerar questões: {str(e)}"))
         
         if gerar_flashcards_check:
-            with st.spinner("Criando flashcards..."):
+            with st.spinner("Montando flashcards..."):
                 try:
-                    flashcards = gerar_flashcards(texto_conteudo)
-                    st.markdown("## 🎴 Flashcards")
-                    st.markdown(flashcards)
-                    st.download_button(
-                        "⬇️ Download Flashcards",
-                        flashcards,
-                        file_name="flashcards.txt",
-                        mime="text/plain"
-                    )
-                    st.markdown("---")
+                    resultados["flashcards"] = gerar_flashcards(texto_conteudo)
+                except ValueError as e:
+                    mensagens.append(("Flashcards", str(e)))
                 except Exception as e:
-                    st.error(f"Erro ao gerar flashcards: {str(e)}")
+                    mensagens.append(("Flashcards", f"Erro ao gerar flashcards: {str(e)}"))
         
-        st.success("✅ Conteúdo gerado com sucesso!")
+        if gerar_audio_check and "resumo" in resultados:
+            with st.spinner("Narrando o resumo em áudio..."):
+                audio_resumo = texto_para_audio(resultados["resumo"])
+                if not audio_resumo:
+                    mensagens.append(("Áudio", "Não foi possível gerar o áudio do resumo."))
+        
+        if resultados:
+            st.markdown("---")
+            st.markdown("<h3 style='font-weight:700;margin-bottom:1.2rem;'>✨ Seu material está pronto</h3>", unsafe_allow_html=True)
+        
+        if "resumo" in resultados:
+            render_text_section("Resumo Inteligente", "📝", resultados["resumo"], "resumo.txt")
+        
+        if audio_resumo:
+            render_audio_section("Áudio do Resumo", "🔊", audio_resumo, "resumo.mp3")
+        
+        if "mapa" in resultados:
+            render_text_section("Mapa Mental", "🧠", resultados["mapa"], "mapa_mental.txt")
+        
+        if "questoes" in resultados:
+            render_text_section("Questões para Revisar", "❓", resultados["questoes"], "questoes.txt")
+        
+        if "flashcards" in resultados:
+            render_text_section("Flashcards de Bolso", "🎴", resultados["flashcards"], "flashcards.txt")
+        
+        if mensagens:
+            for titulo, msg in mensagens:
+                st.warning(f"{titulo}: {msg}")
+        
+        if resultados and not mensagens:
+            st.success("Conteúdo gerado com sucesso!")
+        elif not resultados:
+            st.error("Não foi possível gerar conteúdo. Tente novamente com outro texto ou aguarde alguns instantes.")
 
 elif texto_conteudo and len(texto_conteudo.strip()) <= 100:
     st.warning("⚠️ O texto é muito curto. Por favor, insira um conteúdo com mais de 100 caracteres.")
