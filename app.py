@@ -44,7 +44,7 @@ def extrair_texto_url(url):
         return None
 
 def gerar_com_gemini(prompt, texto):
-    modelo = genai.GenerativeModel('gemini-1.5-flash')
+    modelo = genai.GenerativeModel('gemini-1.5-flash-latest')
     prompt_completo = f"{prompt}\n\nTexto:\n{texto}"
     resposta = modelo.generate_content(prompt_completo)
     return resposta.text
