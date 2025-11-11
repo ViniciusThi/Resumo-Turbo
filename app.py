@@ -141,7 +141,7 @@ def obter_motivo_resposta(resposta):
     for candidato in resposta.candidates:
         motivo = getattr(candidato, "finish_reason", None)
         if motivo and motivo != "STOP":
-            motivos.append(motivo)
+            motivos.append(str(motivo))
     return ", ".join(motivos) if motivos else None
 
 TEXTO_LIMITE = 12000
