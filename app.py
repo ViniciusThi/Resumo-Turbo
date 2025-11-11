@@ -19,16 +19,24 @@ if not GEMINI_API_KEY:
 genai.configure(api_key=GEMINI_API_KEY)
 
 GENERATION_CONFIG = {
-    "temperature": 0.7,
-    "top_p": 0.9,
-    "top_k": 40,
-    "max_output_tokens": 1024,
+    "temperature": 0.65,
+    "top_p": 0.85,
+    "top_k": 32,
+    "max_output_tokens": 1536,
 }
 
-modelo_texto = genai.GenerativeModel(
-    model_name="gemini-2.5-flash",
-    generation_config=GENERATION_CONFIG,
-)
+SAFETY_SETTINGS = [
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH"},
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH"},
+    {"category": "HARM_CATEGORY_SEXUAL", "threshold": "BLOCK_ONLY_HIGH"},
+]
+
+PRIORIDADE_MODELOS = [
+    "gemini-2.5-flash",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+]
 
 st.set_page_config(
     page_title="Resumo Turbo",
@@ -89,13 +97,33 @@ def extrair_texto_url(url):
 
 def gerar_com_gemini(prompt, texto):
     prompt_completo = f"{prompt}\n\nTexto:\n{texto}"
-    resposta = modelo_texto.generate_content(prompt_completo)
-    return extrair_texto_resposta(resposta)
+    erros = []
+    for modelo_nome in PRIORIDADE_MODELOS:
+        try:
+            modelo = genai.GenerativeModel(
+                model_name=modelo_nome,
+                generation_config=GENERATION_CONFIG,
+                safety_settings=SAFETY_SETTINGS,
+            )
+            resposta = modelo.generate_content(prompt_completo)
+            texto_extraido = extrair_texto_resposta(resposta)
+            if texto_extraido:
+                return texto_extraido
+            motivo = obter_motivo_resposta(resposta)
+            if motivo:
+                erros.append(f"{modelo_nome}: {motivo}")
+        except Exception as erro:
+            erros.append(f"{modelo_nome}: {erro}")
+    if erros:
+        raise ValueError(" | ".join(erros))
+    return None
 
 def extrair_texto_resposta(resposta):
     if not resposta or not getattr(resposta, "candidates", None):
         return None
     for candidato in resposta.candidates:
+        if getattr(candidato, "finish_reason", None) == "SAFETY":
+            continue
         if getattr(candidato, "content", None):
             partes = []
             for parte in candidato.content.parts:
@@ -105,6 +133,28 @@ def extrair_texto_resposta(resposta):
             if partes:
                 return "\n".join(partes).strip()
     return None
+
+def obter_motivo_resposta(resposta):
+    if not resposta or not getattr(resposta, "candidates", None):
+        return "Nenhum candidato retornado."
+    motivos = []
+    for candidato in resposta.candidates:
+        motivo = getattr(candidato, "finish_reason", None)
+        if motivo and motivo != "STOP":
+            motivos.append(motivo)
+    return ", ".join(motivos) if motivos else None
+
+TEXTO_LIMITE = 12000
+TRUNCATE_NOTICE = "\n\n[Conteúdo truncado para se adequar ao limite da API.]"
+
+def reduzir_texto(texto, limite=TEXTO_LIMITE):
+    if not texto:
+        return texto
+    if texto.endswith(TRUNCATE_NOTICE):
+        return texto
+    if len(texto) <= limite:
+        return texto
+    return texto[:limite] + TRUNCATE_NOTICE
 
 def gerar_resumo(texto):
     prompt = "Faça um resumo detalhado e estruturado do seguinte texto. Organize em tópicos principais e subtópicos quando necessário:"
@@ -286,6 +336,9 @@ if texto_conteudo and len(texto_conteudo.strip()) > 100:
     
     st.markdown("---")
     st.markdown("<h3 style='font-weight:700;margin-bottom:1rem;'>🎯 Escolha os blocos que deseja gerar</h3>", unsafe_allow_html=True)
+    texto_preparado = reduzir_texto(texto_conteudo)
+    if len(texto_conteudo) > TEXTO_LIMITE:
+        st.info("O texto foi truncado para se adequar ao limite de 12.000 caracteres da API do Gemini.")
     
     col1, col2 = st.columns(2)
     
@@ -306,7 +359,7 @@ if texto_conteudo and len(texto_conteudo.strip()) > 100:
         if gerar_resumo_check:
             with st.spinner("Gerando resumo com o Gemini..."):
                 try:
-                    resultados["resumo"] = gerar_resumo(texto_conteudo)
+                    resultados["resumo"] = gerar_resumo(texto_preparado)
                 except ValueError as e:
                     mensagens.append(("Resumo", str(e)))
                 except Exception as e:
@@ -315,7 +368,7 @@ if texto_conteudo and len(texto_conteudo.strip()) > 100:
         if gerar_mapa_check:
             with st.spinner("Desenhando mapa mental..."):
                 try:
-                    resultados["mapa"] = gerar_mapa_mental(texto_conteudo)
+                    resultados["mapa"] = gerar_mapa_mental(texto_preparado)
                 except ValueError as e:
                     mensagens.append(("Mapa mental", str(e)))
                 except Exception as e:
@@ -324,7 +377,7 @@ if texto_conteudo and len(texto_conteudo.strip()) > 100:
         if gerar_questoes_check:
             with st.spinner("Criando questões desafiadoras..."):
                 try:
-                    resultados["questoes"] = gerar_questoes(texto_conteudo)
+                    resultados["questoes"] = gerar_questoes(texto_preparado)
                 except ValueError as e:
                     mensagens.append(("Questões", str(e)))
                 except Exception as e:
@@ -333,7 +386,7 @@ if texto_conteudo and len(texto_conteudo.strip()) > 100:
         if gerar_flashcards_check:
             with st.spinner("Montando flashcards..."):
                 try:
-                    resultados["flashcards"] = gerar_flashcards(texto_conteudo)
+                    resultados["flashcards"] = gerar_flashcards(texto_preparado)
                 except ValueError as e:
                     mensagens.append(("Flashcards", str(e)))
                 except Exception as e:
