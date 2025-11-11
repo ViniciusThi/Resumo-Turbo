@@ -24,7 +24,7 @@ GENERATION_CONFIG = {
 }
 
 modelo_texto = genai.GenerativeModel(
-    model_name="models/gemini-1.0-pro",
+    model_name="gemini-2.5-flash",
     generation_config=GENERATION_CONFIG,
 )
 
