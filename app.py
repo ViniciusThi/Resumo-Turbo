@@ -8,7 +8,12 @@ import requests
 from bs4 import BeautifulSoup
 from io import BytesIO
 
-GEMINI_API_KEY = "AIzaSyDMlf_jBSHxxk8l-8C1YC86zqSk9vrW6kg"
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
+
+if not GEMINI_API_KEY:
+    st.error("Configure a variavel GEMINI_API_KEY nos secrets do Streamlit ou nas variaveis de ambiente.")
+    st.stop()
+
 genai.configure(api_key=GEMINI_API_KEY)
 
 GENERATION_CONFIG = {
