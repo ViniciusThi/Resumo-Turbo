@@ -63,11 +63,28 @@ def extrair_texto_url(url):
 def gerar_com_gemini(prompt, texto):
     prompt_completo = f"{prompt}\n\nTexto:\n{texto}"
     resposta = modelo_texto.generate_content(prompt_completo)
-    return resposta.text
+    return extrair_texto_resposta(resposta)
+
+def extrair_texto_resposta(resposta):
+    if not resposta or not getattr(resposta, "candidates", None):
+        return None
+    for candidato in resposta.candidates:
+        if getattr(candidato, "content", None):
+            partes = []
+            for parte in candidato.content.parts:
+                texto = getattr(parte, "text", None)
+                if texto:
+                    partes.append(texto)
+            if partes:
+                return "\n".join(partes).strip()
+    return None
 
 def gerar_resumo(texto):
     prompt = "Faça um resumo detalhado e estruturado do seguinte texto. Organize em tópicos principais e subtópicos quando necessário:"
-    return gerar_com_gemini(prompt, texto)
+    resposta = gerar_com_gemini(prompt, texto)
+    if not resposta:
+        raise ValueError("Nenhuma resposta retornada pelo modelo para o resumo.")
+    return resposta
 
 def gerar_mapa_mental(texto):
     prompt = """Crie um mapa mental em formato de texto estruturado do seguinte conteúdo. 
@@ -81,7 +98,10 @@ def gerar_mapa_mental(texto):
     │   ├── 🔹 Subtópico 2.1
     │   └── 🔹 Subtópico 2.2
     """
-    return gerar_com_gemini(prompt, texto)
+    resposta = gerar_com_gemini(prompt, texto)
+    if not resposta:
+        raise ValueError("Nenhuma resposta retornada pelo modelo para o mapa mental.")
+    return resposta
 
 def gerar_questoes(texto):
     prompt = """Gere exatamente 10 questões de múltipla escolha (A, B, C, D) baseadas no texto a seguir. 
@@ -101,7 +121,10 @@ def gerar_questoes(texto):
     **Resposta:** [letra]
     **Explicação:** [explicação]
     """
-    return gerar_com_gemini(prompt, texto)
+    resposta = gerar_com_gemini(prompt, texto)
+    if not resposta:
+        raise ValueError("Nenhuma resposta retornada pelo modelo para as questões.")
+    return resposta
 
 def gerar_flashcards(texto):
     prompt = """Crie 10 flashcards do conteúdo a seguir. Para cada flashcard:
@@ -116,7 +139,10 @@ def gerar_flashcards(texto):
     
     ---
     """
-    return gerar_com_gemini(prompt, texto)
+    resposta = gerar_com_gemini(prompt, texto)
+    if not resposta:
+        raise ValueError("Nenhuma resposta retornada pelo modelo para os flashcards.")
+    return resposta
 
 def texto_para_audio(texto, idioma='pt'):
     try:
