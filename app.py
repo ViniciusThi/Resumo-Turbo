@@ -11,6 +11,18 @@ from io import BytesIO
 GEMINI_API_KEY = "AIzaSyDMlf_jBSHxxk8l-8C1YC86zqSk9vrW6kg"
 genai.configure(api_key=GEMINI_API_KEY)
 
+GENERATION_CONFIG = {
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "top_k": 40,
+    "max_output_tokens": 1024,
+}
+
+modelo_texto = genai.GenerativeModel(
+    model_name="models/gemini-1.0-pro",
+    generation_config=GENERATION_CONFIG,
+)
+
 st.set_page_config(
     page_title="Resumo Turbo",
     page_icon="🚀",
@@ -44,12 +56,8 @@ def extrair_texto_url(url):
         return None
 
 def gerar_com_gemini(prompt, texto):
-    try:
-        modelo = genai.GenerativeModel(model_name='models/gemini-1.5-flash-latest')
-    except Exception:
-        modelo = genai.GenerativeModel(model_name='models/gemini-1.0-pro')
     prompt_completo = f"{prompt}\n\nTexto:\n{texto}"
-    resposta = modelo.generate_content(prompt_completo)
+    resposta = modelo_texto.generate_content(prompt_completo)
     return resposta.text
 
 def gerar_resumo(texto):
