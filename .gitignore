@@ -13,4 +13,5 @@ ENV/
 .streamlit/secrets.toml
 *.pdf
 audio_temp/
+test_models.py
 
