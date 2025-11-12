@@ -27,10 +27,12 @@ SAFETY_SETTINGS = [
 ]
 
 PRIORIDADE_MODELOS = [
+    "gemini-2.5-flash",
+    "gemini-2.0-flash-exp",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
     "gemini-1.0-pro",
     "gemini-pro",
-    "models/gemini-1.0-pro",
-    "models/gemini-pro",
 ]
 
 st.set_page_config(
