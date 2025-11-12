@@ -27,9 +27,10 @@ SAFETY_SETTINGS = [
 ]
 
 PRIORIDADE_MODELOS = [
+    "gemini-1.0-pro",
+    "gemini-pro",
+    "models/gemini-1.0-pro",
     "models/gemini-pro",
-    "models/text-bison-001",
-    "models/chat-bison-001",
 ]
 
 st.set_page_config(
