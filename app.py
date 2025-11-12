@@ -1,10 +1,8 @@
 import streamlit as st
 import google.generativeai as genai
-from PyPDF2 import PdfReader
+from fpdf import FPDF
+from io import BytesIO
 import os
-import html
-import re
-import base64
 
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
 
@@ -37,38 +35,18 @@ PRIORIDADE_MODELOS = [
 ]
 
 st.set_page_config(
-    page_title="Resumo Turbo",
-    page_icon="🚀",
+    page_title="Nutri IA",
+    page_icon="🥗",
     layout="wide"
 )
 
-st.markdown(
-    """
-    <style>
-    .main-title {font-size:2.8rem;font-weight:700;margin-bottom:0.35rem;line-height:1.1;}
-    .sub-title {font-size:1.1rem;color:#5f6368;margin-bottom:2.2rem;}
-    .card {background:linear-gradient(135deg,#ffffff 0%,#f8faff 100%);border:1px solid rgba(99,102,241,0.15);border-radius:18px;padding:28px;margin-bottom:22px;box-shadow:0 28px 46px -32px rgba(79,70,229,0.45);}
-    .card-title {display:flex;align-items:center;gap:14px;font-weight:700;font-size:1.35rem;color:#1f2937;}
-    .card-title span {display:inline-flex;align-items:center;justify-content:center;width:46px;height:46px;border-radius:14px;background:rgba(99,102,241,0.08);font-size:1.5rem;}
-    .card-content {margin-top:18px;background:white;border-radius:14px;padding:20px 22px;border:1px solid rgba(15,23,42,0.06);font-size:1rem;line-height:1.65;font-family:'Inter', sans-serif;}
-    .card-content pre {background:rgba(242,244,255,0.9);padding:16px;border-radius:12px;overflow:auto;font-size:0.95rem;}
-    .download-link {display:inline-flex;align-items:center;gap:8px;margin-top:16px;text-decoration:none;background:linear-gradient(135deg,#eef2ff,#e0e7ff);border:1px solid rgba(99,102,241,0.25);color:#312e81;font-weight:600;padding:0.55rem 1.15rem;border-radius:12px;transition:all 0.2s ease;}
-    .download-link:hover {background:linear-gradient(135deg,#dce4ff,#c7d2fe);color:#1d1a65;}
-    .stSpinner > div {font-size:1.05rem;}
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+st.title("🥗 Nutri IA")
+st.subheader("Planeje sua dieta personalizada e cardápio semanal em poucos minutos")
 
-def extrair_texto_pdf(arquivo_pdf):
-    texto = ""
-    leitor = PdfReader(arquivo_pdf)
-    for pagina in leitor.pages:
-        texto += pagina.extract_text()
-    return texto
+st.write("Preencha as perguntas abaixo e receba automaticamente uma dieta completa, lista de compras e receitas alinhadas aos seus objetivos.")
 
-def gerar_com_gemini(prompt, texto):
-    prompt_completo = f"{prompt}\n\nTexto:\n{texto}"
+
+def gerar_com_gemini(prompt):
     erros = []
     for modelo_nome in PRIORIDADE_MODELOS:
         try:
@@ -77,18 +55,17 @@ def gerar_com_gemini(prompt, texto):
                 generation_config=GENERATION_CONFIG,
                 safety_settings=SAFETY_SETTINGS,
             )
-            resposta = modelo.generate_content(prompt_completo)
-            texto_extraido = extrair_texto_resposta(resposta)
-            if texto_extraido:
-                return texto_extraido
+            resposta = modelo.generate_content(prompt)
+            texto = extrair_texto_resposta(resposta)
+            if texto:
+                return texto
             motivo = obter_motivo_resposta(resposta)
             if motivo:
                 erros.append(f"{modelo_nome}: {motivo}")
         except Exception as erro:
             erros.append(f"{modelo_nome}: {erro}")
-    if erros:
-        raise ValueError(" | ".join(erros))
-    return None
+    raise ValueError(" | ".join(erros) if erros else "Nenhuma resposta retornada pela IA.")
+
 
 def extrair_texto_resposta(resposta):
     if not resposta or not getattr(resposta, "candidates", None):
@@ -106,6 +83,7 @@ def extrair_texto_resposta(resposta):
                 return "\n".join(partes).strip()
     return None
 
+
 def obter_motivo_resposta(resposta):
     if not resposta or not getattr(resposta, "candidates", None):
         return "Nenhum candidato retornado."
@@ -116,142 +94,180 @@ def obter_motivo_resposta(resposta):
             motivos.append(str(motivo))
     return ", ".join(motivos) if motivos else None
 
-TEXTO_LIMITE = 12000
-TRUNCATE_NOTICE = "\n\n[Conteúdo truncado para se adequar ao limite da API.]"
 
-def reduzir_texto(texto, limite=TEXTO_LIMITE):
-    if not texto:
-        return texto
-    if texto.endswith(TRUNCATE_NOTICE):
-        return texto
-    if len(texto) <= limite:
-        return texto
-    return texto[:limite] + TRUNCATE_NOTICE
+def montar_prompt(dados_usuario):
+    return f"""Você é um nutricionista brasileiro. Com base nos dados abaixo, elabore um plano alimentar individual detalhado.
 
-def gerar_resumo(texto):
-    prompt = "Faça um resumo detalhado e estruturado do seguinte texto. Organize em tópicos principais e subtópicos quando necessário:"
-    resposta = gerar_com_gemini(prompt, texto)
-    if not resposta:
-        raise ValueError("Nenhuma resposta retornada pelo modelo para o resumo.")
-    return resposta
+Dados do usuário:
+- Idade: {dados_usuario['idade']} anos
+- Peso: {dados_usuario['peso']} kg
+- Altura: {dados_usuario.get('altura', 'não informado')} cm
+- Gênero biológico: {dados_usuario.get('genero', 'não informado')}
+- Objetivo principal: {dados_usuario['objetivo']}
+- Tempo disponível para preparo das refeições por dia: {dados_usuario['tempo']}
+- Alergias ou restrições alimentares: {dados_usuario['alergias']}
+- Orçamento semanal estimado: {dados_usuario['orcamento']}
+- Preferências adicionais: {dados_usuario.get('preferencias', 'não informado')}
 
-def gerar_resumo_curto(texto):
-    prompt = "Resuma o seguinte conteúdo de forma clara e objetiva, destacando os principais tópicos em até 6 parágrafos curtos:"
-    resposta = gerar_com_gemini(prompt, texto)
-    if not resposta:
-        raise ValueError("Nenhuma resposta retornada pelo modelo para o resumo curto.")
-    return resposta
+Regras:
+1. Considere as informações de alergia e orçamento ao selecionar alimentos.
+2. Ajuste quantidades à idade, peso e objetivo.
+3. Mantenha linguagem em português do Brasil.
 
-def formatar_conteudo_html(texto):
-    if not texto:
-        return ""
-    texto = texto.replace("\r\n", "\n")
-    blocos_codigo = []
+Formato obrigatório (Markdown):
+## Resumo do Perfil
+- 3 a 5 tópicos com insights principais do usuário.
 
-    def armazenar_bloco(match):
-        blocos_codigo.append(match.group(1))
-        return f"__CODE_BLOCK_{len(blocos_codigo) - 1}__"
+## Dieta Personalizada
+- Explique calorias estimadas e distribuição de macros.
+- Descreva plano diário (café, lanche, almoço, lanche, jantar, ceia) com porções.
 
-    texto = re.sub(r"```([\s\S]+?)```", armazenar_bloco, texto)
-    texto = html.escape(texto)
-    texto = re.sub(r"\*\*(.*?)\*\*", r"<strong>\1</strong>", texto)
-    texto = re.sub(r"__(.*?)__", r"<strong>\1</strong>", texto)
-    texto = re.sub(r"\*(.*?)\*", r"<em>\1</em>", texto)
-    texto = texto.replace("\n- ", "<br>• ")
-    texto = texto.replace("\n• ", "<br>• ")
-    texto = texto.replace("\n", "<br>")
+## Cardápio Semanal
+- Tabela ou lista com refeições para segunda a domingo, adaptadas à rotina do usuário.
 
-    for indice, bloco in enumerate(blocos_codigo):
-        conteudo = html.escape(bloco)
-        texto = texto.replace(f"__CODE_BLOCK_{indice}__", f"<pre>{conteudo}</pre>")
+## Lista de Compras Semanal
+- Organize por categorias (hortifruti, proteínas, grãos, laticínios, outros).
+- Indique quantidades aproximadas.
 
-    return texto
+## Receitas Sugeridas
+- Forneça ao menos 3 receitas simples (ingredientes, preparo, tempo estimado).
 
-def criar_link_download(dados, nome_arquivo, mime):
-    if isinstance(dados, str):
-        dados = dados.encode("utf-8")
-    base = base64.b64encode(dados).decode()
-    return f'<a class="download-link" href="data:{mime};base64,{base}" download="{nome_arquivo}">⬇️ Baixar {nome_arquivo}</a>'
+## Dicas e Recomendações
+- 4 a 6 bullets com orientações práticas.
 
-def render_text_section(titulo, icone, conteudo, nome_arquivo):
-    corpo = formatar_conteudo_html(conteudo)
-    link = criar_link_download(conteudo, nome_arquivo, "text/plain")
-    st.markdown(
-        f"""
-        <div class="card">
-            <div class="card-title"><span>{icone}</span>{titulo}</div>
-            <div class="card-content">{corpo}</div>
-            {link}
-        </div>
-        """,
-        unsafe_allow_html=True,
+## Plano de Acompanhamento
+- Sugira métricas para acompanhar progresso e ajustes futuros.
+
+Capriche no tom motivador, prático e profissional."""
+
+
+def dividir_secoes(texto):
+    secoes = {}
+    titulo_atual = None
+    linhas = texto.splitlines()
+    for linha in linhas:
+        if linha.startswith("## "):
+            titulo_atual = linha[3:].strip()
+            secoes[titulo_atual] = []
+        elif titulo_atual:
+            secoes[titulo_atual].append(linha)
+    return {titulo: "\n".join(conteudo).strip() for titulo, conteudo in secoes.items()}
+
+
+class PlanoPDF(FPDF):
+    def header(self):
+        self.set_font("Helvetica", "B", 16)
+        self.cell(0, 10, "Nutri IA - Plano Personalizado", ln=True, align="C")
+        self.ln(3)
+
+    def footer(self):
+        self.set_y(-15)
+        self.set_font("Helvetica", "I", 8)
+        self.cell(0, 10, f"Página {self.page_no()}", align="C")
+
+
+def gerar_pdf(secoes):
+    pdf = PlanoPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    for titulo, conteudo in secoes.items():
+        if not conteudo:
+            continue
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.multi_cell(0, 9, titulo)
+        pdf.ln(2)
+        pdf.set_font("Helvetica", "", 11)
+        for linha in conteudo.splitlines():
+            texto = linha.strip()
+            if not texto:
+                pdf.ln(4)
+            else:
+                pdf.multi_cell(0, 6, texto)
+        pdf.ln(5)
+
+    buffer = BytesIO()
+    pdf.output(buffer, "S")
+    buffer.seek(0)
+    return buffer
+
+
+with st.form("form_nutri"):
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        idade = st.number_input("Idade", min_value=10, max_value=100, value=25)
+        peso = st.number_input("Peso (kg)", min_value=30.0, max_value=250.0, value=70.0, step=0.5)
+    with col2:
+        altura = st.number_input("Altura (cm)", min_value=120, max_value=220, value=170)
+        genero = st.selectbox("Gênero biológico", ["Feminino", "Masculino", "Outro", "Prefiro não informar"])
+    with col3:
+        objetivo = st.selectbox(
+            "Objetivo principal",
+            [
+                "Perder peso de forma saudável",
+                "Ganhar massa muscular",
+                "Manter peso com energia",
+                "Melhorar hábitos alimentares",
+                "Plano vegetariano/vegano equilibrado",
+            ],
+        )
+        tempo = st.selectbox(
+            "Tempo disponível para cozinhar (por dia)",
+            ["Até 20 minutos", "Entre 20 e 40 minutos", "Mais de 40 minutos"],
+        )
+
+    alergias = st.text_input("Alergias ou restrições", placeholder="Ex.: intolerância à lactose, alergia a frutos do mar")
+    preferencias = st.text_input("Preferências gastronômicas", placeholder="Ex.: gosto de culinária mediterrânea, evitar frituras")
+    orcamento = st.selectbox(
+        "Orçamento semanal",
+        ["Baixo", "Moderado", "Alto"],
+        index=1,
     )
 
-st.markdown("<div class='main-title'>🚀 Resumo Turbo</div>", unsafe_allow_html=True)
-st.markdown("<div class='sub-title'>Transforme seus PDFs em resumos inteligentes com o poder do Google Gemini.</div>", unsafe_allow_html=True)
+    gerar = st.form_submit_button("Gerar plano alimentar", use_container_width=True)
 
-st.markdown("---")
+if gerar:
+    dados = {
+        "idade": idade,
+        "peso": peso,
+        "altura": altura,
+        "genero": genero,
+        "objetivo": objetivo,
+        "tempo": tempo,
+        "alergias": alergias or "Nenhuma informada",
+        "preferencias": preferencias or "Nenhuma informada",
+        "orcamento": orcamento,
+    }
 
-st.markdown("<h3 style='font-weight:700;margin-bottom:1rem;'>📄 Faça upload do PDF que deseja resumir</h3>", unsafe_allow_html=True)
-arquivo_upload = st.file_uploader("Selecione um arquivo PDF", type=['pdf'])
+    with st.spinner("Consultando o Nutri IA..."):
+        try:
+            plano_texto = gerar_com_gemini(montar_prompt(dados))
+            secoes = dividir_secoes(plano_texto)
 
-if arquivo_upload:
-    with st.spinner("Extraindo texto do PDF..."):
-        texto_extraido = extrair_texto_pdf(arquivo_upload)
-    if texto_extraido and len(texto_extraido.strip()) > 100:
-        st.success(f"✅ PDF processado! {len(texto_extraido)} caracteres extraídos.")
-        texto_preparado = reduzir_texto(texto_extraido)
-        if len(texto_extraido) > TEXTO_LIMITE:
-            st.info("O texto foi truncado para se adequar ao limite de 12.000 caracteres da API do Gemini.")
+            st.success("Plano gerado com sucesso! Confira os detalhes abaixo.")
 
-        if st.button("✨ Gerar resumo", type="primary", use_container_width=True):
-            resumo_completo = None
-            resumo_curto = None
-            mensagens = []
+            for titulo, conteudo in secoes.items():
+                with st.expander(titulo, expanded=titulo in ["Resumo do Perfil", "Dieta Personalizada"]):
+                    st.markdown(conteudo)
 
-            with st.spinner("Consultando o Gemini para criar o resumo detalhado..."):
-                try:
-                    resumo_completo = gerar_resumo(texto_preparado)
-                except ValueError as e:
-                    mensagens.append(str(e))
-                except Exception as e:
-                    mensagens.append(f"Erro ao gerar resumo detalhado: {str(e)}")
+            st.download_button(
+                "⬇️ Fazer download em texto",
+                plano_texto,
+                file_name="plano_nutri_ia.txt",
+                mime="text/plain",
+            )
 
-            if resumo_completo:
-                with st.spinner("Gerando uma versão rápida do resumo..."):
-                    try:
-                        resumo_curto = gerar_resumo_curto(texto_preparado)
-                    except ValueError as e:
-                        mensagens.append(str(e))
-                    except Exception as e:
-                        mensagens.append(f"Erro ao gerar resumo curto: {str(e)}")
+            pdf_buffer = gerar_pdf(secoes)
+            st.download_button(
+                "⬇️ Versão imprimível (PDF)",
+                pdf_buffer,
+                file_name="plano_nutri_ia.pdf",
+                mime="application/pdf",
+            )
 
-            st.markdown("---")
-            st.markdown("<h3 style='font-weight:700;margin-bottom:1.2rem;'>✨ Resultado do resumo do PDF</h3>", unsafe_allow_html=True)
-
-            if resumo_completo:
-                render_text_section("Resumo Estruturado", "📝", resumo_completo, "resumo_detalhado.txt")
-
-            if resumo_curto:
-                render_text_section("Resumo Express", "⚡", resumo_curto, "resumo_express.txt")
-
-            if mensagens:
-                for msg in mensagens:
-                    st.warning(msg)
-
-            if resumo_completo or resumo_curto:
-                st.success("Resumo gerado com sucesso!")
-            else:
-                st.error("Não foi possível gerar o resumo. Tente novamente com outro texto ou verifique sua chave da API.")
-    else:
-        st.warning("⚠️ Conteúdo insuficiente no PDF. Use um documento com mais de 100 caracteres.")
+        except Exception as erro:
+            st.error(f"Não foi possível gerar o plano. Detalhes: {erro}")
 else:
-    st.info("Envie um PDF para gerar o resumo com o Gemini.")
-
-st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: #666;'>
-    <p>💡 <strong>Resumo Turbo</strong> - Resumos inteligentes de PDFs com Google Gemini</p>
-</div>
-""", unsafe_allow_html=True)
+    st.info("Preencha o formulário e clique em 'Gerar plano alimentar' para receber sua dieta personalizada.")
 
