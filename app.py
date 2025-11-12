@@ -48,6 +48,7 @@ st.write("Preencha as perguntas abaixo e receba automaticamente uma dieta comple
 
 
 def gerar_com_gemini(prompt):
+    import time
     erros = []
     for modelo_nome in PRIORIDADE_MODELOS:
         try:
@@ -64,7 +65,17 @@ def gerar_com_gemini(prompt):
             if motivo:
                 erros.append(f"{modelo_nome}: {motivo}")
         except Exception as erro:
+            erro_str = str(erro)
+            if "429" in erro_str or "quota" in erro_str.lower():
+                erros.append(f"{modelo_nome}: Limite de quota atingido - aguarde alguns minutos")
+                time.sleep(10)
+                continue
+            if "404" in erro_str:
+                continue
             erros.append(f"{modelo_nome}: {erro}")
+    
+    if all("404" in e or "quota" in e.lower() for e in erros):
+        raise ValueError("Sua chave API atingiu o limite diário ou precisa ser atualizada. Crie uma nova chave em https://aistudio.google.com/app/apikey e atualize nos Secrets.")
     raise ValueError(" | ".join(erros) if erros else "Nenhuma resposta retornada pela IA.")
 
 
